@@ -9,4 +9,4 @@
 ### Video Guide  
 Watch the video guide below to see how to use CMF GIF Switcher:  
 
-[Watch Guide](Guide/guide.mp4)
+- <img src="Guide/guide.gif" width="200px">
