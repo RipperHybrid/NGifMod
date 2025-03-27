@@ -1,6 +1,6 @@
 id=ngifmod
 name=CMF GIF Switcher
-version=v1.0
-versionCode=10000
+version=v1.2
+versionCode=120
 author=AshBorn(@Ripper_Hybrid)
-description=Convert normal images into animated GIF widgets on CMF by Nothing. Usage: su → ngifmod | nwidget | widget
+description=Convert normal images into animated GIF widgets on CMF by Nothing. Usage: su → ngifmod | nowid | widget

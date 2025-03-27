@@ -37,4 +37,7 @@ ngifmod
 ```
 
 ## Author
-- **AshBorn** ([@Ripper_Hybrid](https://t.me/Ripper_Hybrid))
+- **AshBorn** ([@Ripper_Hybrid](https://t.me/Ripper_Hybrid))  
+
+## Credits
+- **Magick Binary:** [ImageMagick](https://github.com/ImageMagick/ImageMagick)
