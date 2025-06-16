@@ -1,4 +1,4 @@
-# CMF GIF Switcher - Video Guide/Preview
+# Nothing GIF Switcher - Video Guide/Preview
 
 ### Home Screen
 - <img src="Guide/HomeScreen.gif" width="200px">
@@ -13,6 +13,6 @@
 - <img src="Guide/LockScreen_Greyscale.gif" width="200px">
 
 ### Video Guide  
-Watch the video guide below to see how to use CMF GIF Switcher:  
+Watch the video guide below to see how to use Nothing GIF Switcher:  
 
 - <img src="Guide/guide.gif" width="200px">
