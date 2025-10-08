@@ -1,67 +1,71 @@
-# GIF/MP4 Switcher for Nothing/CMF Phones (`NGIFMod`)
+# Nothing Widget Animator
 
-<img src="https://img.shields.io/badge/Tested%20on-CMF%20Phone%201%20%26%202%20Pro-green" alt="Tested on CMF Phone 1 & 2 Pro">
+<img src="https://img.shields.io/badge/Exclusively%20for-Nothing%20Devices-green" alt="Exclusively for Nothing Devices">
 <img src="https://img.shields.io/badge/Compatible%20with-Magisk%20%7C%20KernelSU%20%7C%20KernelSU--Next-blueviolet" alt="Compatible with Magisk, KernelSU, KernelSU-Next">
 
 ## 📝 Overview  
-A **Magisk module** that enables **animated GIF/MP4 support** for widgets on **Nothing OS devices**, including CMF phones. By default, the system restricts widgets to static WebP images. This module dynamically replaces WebP files with GIFs or MP4s, allowing for smooth, animated widgets.
+A **Magisk/KernelSU/KernelSU-Next module** that enables **animated GIF/MP4/WebP support** for widgets on **Nothing devices**. This module replaces static widget images with animated content while maintaining the native Nothing widget experience.
 
-✅ **Tested on:**  
-- **CMF Phone 1**  
-- **CMF Phone 2 Pro**  
+## ✅ Compatible Devices  
+- Nothing Phones
+- CMF Phones
+- Any Nothing OS-based device
 
-✅ **Should work on:**  
-- **All Nothing OS-based phones** (Expected)
-
-✅ **Tested environments:**  
-- **Magisk**  
-- **KernelSU**  
-- **KernelSU-Next**  
-
----
+## ✅ Requirements  
+- Nothing Widgets system app must be present
+- Root access (Magisk/KernelSU/KernelSU-Next)
 
 ## ✨ Features  
-- Animate widgets on **Home Screen**, **Lock Screen**, or **CMF Widget panel**.  
-- Replace a **single WebP** or **batch convert** all to GIF/MP4.  
-- No need for a full reboot — system processes are killed to apply changes instantly.  
-- Lightweight & non-intrusive (uses `ImageMagick` and `FFmpeg` for conversions).  
-
----
+- Multi-format support: GIF, MP4, WebP, MKV, and all ffmpeg-supported videos
+- Smart backup system: Create encrypted backups of your current widgets
+- Batch processing: Replace single or multiple widgets at once
+- Keyword search: Find media files by name across your device
+- Auto grayscale generation: Creates mono versions for widget consistency
+- POSIX compliant: Works on any shell environment
 
 ## ⚙️ Installation  
-1. **Flash** via Magisk, KernelSU, or KernelSU-Next.  
-2. **Reboot** your device.  
-
----
+1. Flash via Magisk, KernelSU, or KernelSU-Next
+2. Reboot your device
+3. Ensure Nothing Hearthstone app is enabled
 
 ## 🛠️ Usage  
-### Via Terminal:  
-```sh
-su
-nowid
-```
-Follow the on-screen prompts:  
-- Specify whether the widget was added to the **Home Screen** or **Lock Screen**.  
-- Choose whether to replace **one WebP file** or **all WebP files** with GIFs/MP4s.  
-- Provide the path to the GIF/MP4 file or folder.  
-- Kill relevant system processes to apply changes instantly.
+1. **For Magisk**: Open terminal and type `su` then `ngif`
+2. **For KernelSU**: Enable root for your terminal app in KernelSU Manager, then open terminal and type `su` then type `ngif`
+3. Follow the on-screen instructions to select widgets and media files.
 
-## 🎬 Video Guide  
-Check out **[Preview.md](Preview.md)** for a detailed video walkthrough.
+## ❗ Troubleshooting
 
-## 🧪 Example Command  
-```sh
-su
-nowid
-```
+If you see the error: `✖ [Cannot access app data folder]`
+
+**For Magisk:**
+1. Open Magisk app
+2. Go to Settings
+3. Scroll down to "Mount Namespace Mode"
+4. Change it to "Global Namespace"
+5. Exit terminal completely and try again
+
+**For KernelSU/KernelSU-Next:**
+1. Open KernelSU app
+2. Go to Settings
+3. Enable "Global namespace mode"
+4. Exit terminal completely and try again
+
+**Note:** You need to add widgets and add images before running the script.
+
+## 🔄 Backup & Restore  
+- Create encrypted backups with password protection
+- Backup both color and mono widget versions  
+- Store backups on internal storage for safekeeping
+
+## 🎬 Preview  
+Check out **[Preview](preview.md)**
 
 ## 👤 Author  
 - **AshBorn** ([@Ripper_Hybrid](https://t.me/Ripper_Hybrid))
 
 ## 💡 Credits  
-- **Magick Binary:** [ImageMagick](https://github.com/ImageMagick/ImageMagick)  
-- **Media Converter:** [FFmpeg](https://ffmpeg.org) – v7.1.1 compiled for Android (AArch64)  
-- **Shell Support:** [GNU Bash](http://www.gnu.org/software/bash) – version 5.2.37(1)-release (aarch64-unknown-linux-android)
+- **Media Converter:** [FFmpeg Static Build](https://johnvansickle.com/ffmpeg)
+- **Archive Tool**: [Info-ZIP](https://infozip.sourceforge.net/)
 
 ## 📜 License
 - **This project is licensed under the** [MIT License](LICENSE).

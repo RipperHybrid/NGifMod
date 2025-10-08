@@ -1,0 +1,694 @@
+#!/system/bin/sh
+set -eu
+
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+CYAN="\033[36m"
+RESET="\033[0m"
+BOLD="\033[1m"
+
+section() {
+    printf "\n%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET"
+    printf "%b%s%b\n" "$CYAN" "◆  $(printf '%-38s' "$1")" "$RESET"
+    printf "%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET"
+}
+
+cecho() { printf "%b%s%b\n" "$1" "$2" "$RESET"; }
+
+final_cleanup() {
+    if [ -n "${TEMP_DIR:-}" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf /data/local/tmp/ngs_* 2>/dev/null || true
+    fi
+    pkill -9 -f com.nothing.hearthstone 2>/dev/null || true
+    pkill -9 -f com.nothing.launcher 2>/dev/null || true
+}
+trap final_cleanup EXIT INT TERM HUP
+
+setup_dir() {
+    TEMP_DIR="/data/local/tmp/ngs_$$"
+    mkdir -p "$TEMP_DIR"
+    CHANGED_PATHS_FILE="$TEMP_DIR/changed_paths.txt"
+    CHANGED_ASSETS_FILE="$TEMP_DIR/changed_assets.txt"
+    touch "$CHANGED_PATHS_FILE"
+    touch "$CHANGED_ASSETS_FILE"
+}
+
+track_folder() {
+    path="$1"
+    if [ -d "$path" ] && ! grep -q -F "$path" "$CHANGED_PATHS_FILE" 2>/dev/null; then
+        echo "$path" >> "$CHANGED_PATHS_FILE"
+    fi
+}
+
+track_asset() {
+    asset_file="$1"
+    filename=$(basename "$asset_file")
+    if ! grep -q -F "$filename" "$CHANGED_ASSETS_FILE" 2>/dev/null; then
+        echo "$filename" >> "$CHANGED_ASSETS_FILE"
+    fi
+}
+
+fix_permissions() {
+    section "Setting Permissions"
+    if [ -s "$CHANGED_PATHS_FILE" ]; then
+        sort -u "$CHANGED_PATHS_FILE" | while IFS= read -r path; do
+            if [ -d "$path" ]; then
+                chmod -R 777 "$path" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    if [ -s "$CHANGED_ASSETS_FILE" ]; then
+        printf "%b▶ Modified assets:%b\n" "$CYAN" "$RESET"
+        sort -u "$CHANGED_ASSETS_FILE" | while IFS= read -r filename; do
+            short_name=$(echo "$filename" | sed 's/\(nothing_photo_[0-9-]*_[0-9]*\).*/\1.../')
+            cecho "$GREEN" "  ✔ $short_name"
+        done
+    else
+        cecho "$YELLOW" "▶ No assets to set permissions for"
+    fi
+}
+
+check_env() {
+    if [ "$(id -u)" -ne 0 ]; then 
+        cecho "$RED" "▶ ✖ [Error: Run as root]"
+        cecho "$YELLOW" "▶ ⚠ [Exit the terminal completely and restart after enabling root]"
+        exit 1
+    fi
+
+    if ! command -v ffmpeg >/dev/null 2>&1; then 
+        cecho "$RED" "▶ ✖ [Missing required tool: ffmpeg]"
+        exit 1
+    fi
+
+    if ! command -v infozip >/dev/null 2>&1; then 
+        cecho "$RED" "▶ ✖ [Missing required tool: infozip]"
+        exit 1
+    fi
+
+    if ! pm list packages | grep -q "com.nothing.hearthstone"; then
+        cecho "$RED" "▶ ✖ [App not installed: com.nothing.hearthstone]"
+        exit 1
+    fi
+
+    if [ ! -d "/data/user/0/com.nothing.hearthstone" ]; then
+        cecho "$RED" "▶ ✖ [Cannot access app data folder]"
+        cecho "$YELLOW" "▶ ⚠ [Enable 'Global Namespace' or Mount Namespace Mode in your root solution]"
+        cecho "$YELLOW" "▶ ⚠ [Magisk: Mount Namespace Mode ▶ Global Namespace]"
+        cecho "$YELLOW" "▶ ⚠ [KernelSU-Next: Enable Global namespace mode]"
+        cecho "$YELLOW" "▶ ⚠ [Exit terminal completely and restart after changing setting]"
+        exit 1
+    fi
+
+    cecho "$GREEN" "▶ ✔ Environment OK"
+}
+
+discover_widgets() {
+    cd /data/user/0/com.nothing.hearthstone/files/picture/normal 2>/dev/null || { cecho "$RED" "▶ ✖ [Widget directory missing]"; exit 1; }
+    widgets_count=0
+    > "$TEMP_DIR/widgets.txt"
+    for d in ./*; do
+        name="${d##*/}"
+        if [ -d "$d" ] && [ "${name}" != .* ] && ! echo "$name" | grep -q -i -e 'x' -e '×'; then
+            webp_count=$(find "$d" -name "nothing_photo_*.webp" | wc -l)
+            if [ "$webp_count" -gt 0 ]; then
+                widgets_count=$((widgets_count + 1))
+                eval "widget_$widgets_count=\"$name\""
+                echo "$name" >> "$TEMP_DIR/widgets.txt"
+                eval "widget_${widgets_count}_files=$webp_count"
+            fi
+        fi
+    done
+    if [ "$widgets_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No widgets found]"; exit 1; fi
+}
+
+display_widgets() {
+    section "Available Widgets"
+    for i in $(seq 1 "$widgets_count"); do
+        folder=$(eval "echo \$widget_$i")
+        files=$(eval "echo \$widget_${i}_files")
+        printf "  %b%d) %s %b(%d files)%b\n" "$GREEN" "$i" "$folder" "$YELLOW" "$files" "$RESET"
+    done
+}
+
+pick_widget() {
+    discover_widgets
+    if [ "$widgets_count" -eq 1 ]; then
+        widget_choice=1
+        widget_name=$(eval "echo \$widget_1")
+        cecho "$YELLOW" "▶ Only one widget found: $widget_name. Selecting automatically."
+    else
+        display_widgets
+        printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET"
+        while :; do
+            read widget_choice
+            case "$widget_choice" in
+                ''|*[!0-9]*) cecho "$RED" "▶ ✖ Invalid choice";;
+                *) if [ "$widget_choice" -ge 1 ] && [ "$widget_choice" -le "$widgets_count" ]; then break; else cecho "$RED" "▶ ✖ Invalid choice"; fi;;
+            esac
+            printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET"
+        done
+        widget_name=$(eval "echo \$widget_$widget_choice")
+    fi
+    TARGET_PATH="/data/user/0/com.nothing.hearthstone/files/picture/normal/${widget_name}/"
+    MONO_PATH="/data/user/0/com.nothing.hearthstone/files/picture/mono/${widget_name}/"
+}
+
+scan_assets() {
+    find "$TARGET_PATH" -name "nothing_photo_*.webp" | sort > "$TEMP_DIR/webps.txt"
+    webps_count=0
+    while IFS= read -r w; do
+        webps_count=$((webps_count + 1))
+        eval "webp_$webps_count=\"\$w\""
+    done < "$TEMP_DIR/webps.txt"
+    if [ "$webps_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No WebP files found]"; exit 1; fi
+}
+
+choose_mode() {
+    if [ "$webps_count" -gt 1 ]; then
+        section "Replacement Mode"
+        printf "  %b1) Replace single\n  %b2) Replace multiple%b\n" "$CYAN" "$CYAN" "$RESET"
+        printf "\n%b▶ Select mode: %b" "$CYAN" "$RESET"
+        while :; do
+            read mode
+            case "$mode" in
+                1|2) break ;;
+                *) cecho "$RED" "▶ ✖ Invalid mode"; printf "%b▶ Select mode: %b" "$CYAN" "$RESET";;
+            esac
+        done
+    else
+        mode=1
+    fi
+}
+
+pick_source_type() {
+    section "Source Type"
+    printf "  %b1) GIF\n  %b2) MP4\n  %b3) WebP\n  %b4) MKV\n  %b5) Other Video (ffmpeg supported)%b\n" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$RESET"
+    printf "\n%b▶ Select source type: %b" "$CYAN" "$RESET"
+    while :; do
+        read type
+        case "$type" in
+            1) type_ext="gif"; break ;;
+            2) type_ext="mp4"; break ;;
+            3) type_ext="webp"; break ;;
+            4) type_ext="mkv"; break ;;
+            5) type_ext="any"; break ;;
+            *) cecho "$RED" "▶ ✖ Invalid type"; printf "%b▶ Select source type: %b" "$CYAN" "$RESET";;
+        esac
+        done
+}
+
+create_webp() {
+    src="$1"
+    out="$TEMP_DIR/$(basename "${src%.*}")_$(date +%s%N).webp"
+    fps=$(ffmpeg -i "$src" 2>&1 | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
+    [ -z "$fps" ] && fps=24
+    ffmpeg -y -i "$src" -vf "fps=$fps,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 "$out" 2> "$TEMP_DIR/ffmpeg_webp.log"
+    if [ -f "$out" ] && [ -s "$out" ]; then
+        echo "$out"
+    else
+        cecho "$RED" "▶ ✖ [Conversion failed: see $TEMP_DIR/ffmpeg_webp.log]"
+        tail -20 "$TEMP_DIR/ffmpeg_webp.log" >&2
+        return 1
+    fi
+}
+
+create_grayscale() {
+    src="$1"
+    dest="$2"
+    fps=$(ffmpeg -i "$src" 2>&1 | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
+    [ -z "$fps" ] && fps=24
+    ffmpeg -y -i "$src" -vf "format=gray,fps=$fps,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 "$dest" 2> "$TEMP_DIR/ffmpeg_webp_gray.log"
+    if [ ! -s "$dest" ]; then
+        cecho "$RED" "▶ ✖ [Mono conversion failed. See logs:]"
+        tail -20 "$TEMP_DIR/ffmpeg_webp_gray.log" >&2
+        return 1
+    fi
+}
+
+backup_widgets() {
+    section "Backup Widgets"
+    pick_widget
+    src_normal="/data/user/0/com.nothing.hearthstone/files/picture/normal/$widget_name/"
+    src_mono="/data/user/0/com.nothing.hearthstone/files/picture/mono/$widget_name/"
+    backup_time=$(date "+%Y%m%d_%H%M%S")
+    backup_zip="/storage/emulated/0/n2gif_backup_${widget_name}_${backup_time}.zip"
+    printf "%b▶ Set a password for the backup (press Enter for no encryption): %b" "$CYAN" "$RESET"
+    read -r password
+    cecho "$CYAN" "▶ Creating backup archive..."
+    TMP_BK="/data/local/tmp/backup_$$"
+    mkdir -p "$TMP_BK/normal/$widget_name" "$TMP_BK/mono/$widget_name"
+    cp "$src_normal"*.webp "$TMP_BK/normal/$widget_name/" 2>/dev/null || true
+    cp "$src_mono"*.webp "$TMP_BK/mono/$widget_name/" 2>/dev/null || true
+    cd "$TMP_BK"
+    if [ -n "$password" ]; then
+        infozip -r -5 -q -P "$password" "$backup_zip" "normal" "mono" >/dev/null 2>&1
+    else
+        infozip -r -5 -q "$backup_zip" "normal" "mono" >/dev/null 2>&1
+    fi
+    cd - >/dev/null
+    rm -rf "$TMP_BK"
+    if [ -f "$backup_zip" ] && [ "$(stat -c %s "$backup_zip")" -gt 0 ]; then
+        cecho "$GREEN" "✔ Backup created: $backup_zip"
+        [ -n "$password" ] && cecho "$YELLOW" "▶ Backup is encrypted with your password (insecure method)."
+    else
+        cecho "$RED" "▶ ✖ Backup failed!"
+    fi
+}
+
+find_files() {
+    local keyword="$1"
+    local type_ext="$2"
+    local output_file="$3"
+    
+    case "$type_ext" in
+        gif)   find_pattern="*$keyword*.gif" ;;
+        mp4)   find_pattern="*$keyword*.mp4" ;;
+        webp)  find_pattern="*$keyword*.webp" ;;
+        mkv)   find_pattern="*$keyword*.mkv" ;;
+        any)   find_pattern="*$keyword*" ;;
+        *)     find_pattern="*$keyword*" ;;
+    esac
+    
+    find /storage/emulated/0 -type f -name "$find_pattern" -size -100M ! -path "*/Android/*" ! -name ".*" ! -path "*/.*/*" > "$output_file"
+}
+
+search_all_formats() {
+    local keyword="$1"
+    local output_file="$2"
+    
+    find /storage/emulated/0 -type f \( -iname "*$keyword*.gif" -o -iname "*$keyword*.mp4" -o -iname "*$keyword*.webp" -o -iname "*$keyword*.mkv" -o -iname "*$keyword*.webm" -o -iname "*$keyword*.avi" -o -iname "*$keyword*.mov" -o -iname "*$keyword*.mpeg" -o -iname "*$keyword*.mpg" \) -size -100M ! -path "*/Android/*" ! -name ".*" ! -path "*/.*/*" > "$output_file"
+}
+
+process_selection() {
+    if [ "$mode" = 1 ]; then
+        if [ "$webps_count" -eq 1 ]; then
+            selected_webp=$(eval "echo \$webp_1")
+        else
+            section "Select WebP to Replace"
+            for i in $(seq 1 "$webps_count"); do
+                w=$(eval "echo \$webp_$i")
+                printf "  %b%d) %s%b\n" "$GREEN" "$i" "$(basename "$w")" "$RESET"
+            done
+            printf "\n%b▶ Choose: %b" "$CYAN" "$RESET"
+            while :; do
+                read choice
+                case "$choice" in
+                    ''|*[!0-9]*) cecho "$RED" "▶ ✖ Invalid choice";;
+                    *) if [ "$choice" -ge 1 ] && [ "$choice" -le "$webps_count" ]; then break; else cecho "$RED" "▶ ✖ Invalid choice"; fi;;
+                esac
+                printf "%b▶ Choose: %b" "$CYAN" "$RESET"
+            done
+            selected_webp=$(eval "echo \$webp_$choice")
+            printf "\n"
+        fi
+        section "Source Type"
+        printf "  %b1) GIF\n  %b2) MP4\n  %b3) WebP\n  %b4) MKV\n  %b5) Other Video (ffmpeg supported)%b\n" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$RESET"
+        printf "\n%b▶ Select source type: %b" "$CYAN" "$RESET"
+        while :; do
+            read type
+            case "$type" in
+                1) type_ext="gif"; break ;;
+                2) type_ext="mp4"; break ;;
+                3) type_ext="webp"; break ;;
+                4) type_ext="mkv"; break ;;
+                5) type_ext="any"; break ;;
+                *) cecho "$RED" "▶ ✖ Invalid type"; printf "%b▶ Select source type: %b" "$CYAN" "$RESET";;
+            esac
+        done
+
+        section "Select Source Directory"
+        printf "  %b1) Scan /storage/emulated/0/\n  %b2) Search by keyword in filename%b\n" "$CYAN" "$CYAN" "$RESET"
+        while :; do
+            printf "%b▶ Select source: %b" "$CYAN" "$RESET"
+            read src
+            case "$src" in
+                1)
+                    path="/storage/emulated/0/"
+                    case "$type_ext" in
+                        gif)   find_expr="-iname '*.gif'" ;;
+                        mp4)   find_expr="-iname '*.mp4'" ;;
+                        webp)  find_expr="-iname '*.webp'" ;;
+                        mkv)   find_expr="-iname '*.mkv'" ;;
+                        any)   find_expr="( -iname '*.gif' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.webp' )" ;;
+                        *)     find_expr="( -iname '*.gif' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.webp' )" ;;
+                    esac
+                    eval find \""$path"\" -type f $find_expr -size -100M ! -path "\"*/Android/*\"" ! -name "\".*\"" ! -path "\"*/.*/*\"" > "$TEMP_DIR/sources.txt"
+                    sources_count=$(wc -l < "$TEMP_DIR/sources.txt")
+                    if [ "$sources_count" -gt 30 ]; then
+                        printf "%b▶ There are more than 30 files (%d found). It's recommended to use keyword search for easier selection.%b\n" "$YELLOW" "$sources_count" "$RESET"
+                        printf "%b▶ Do you want to use keyword search instead? (y/n): %b" "$CYAN" "$RESET"
+                        read ans
+                        case "$ans" in
+                            y|Y)
+                                src=2
+                                continue
+                                ;;
+                            n|N)
+                                break
+                                ;;
+                            *)
+                                cecho "$RED" "✖ Invalid choice"
+                                continue
+                                ;;
+                        esac
+                    else
+                        break
+                    fi
+                    ;;
+                2)
+                    printf "%b▶ Enter part of filename to search: %b" "$CYAN" "$RESET"
+                    read keyword
+                    if [ -z "$keyword" ]; then cecho "$RED" "✖ No keyword entered"; continue; fi
+                    find_files "$keyword" "$type_ext" "$TEMP_DIR/sources.txt"
+                    sources_count=$(wc -l < "$TEMP_DIR/sources.txt")
+                    if [ "$sources_count" -eq 0 ] && [ "$type_ext" != "any" ]; then
+                        printf "%b▶ No %s files found with keyword '%s'%b\n" "$YELLOW" "$type_ext" "$keyword" "$RESET"
+                        printf "%b▶ Searching in all supported formats...%b\n" "$CYAN" "$RESET"
+                        search_all_formats "$keyword" "$TEMP_DIR/sources.txt"
+                        sources_count=$(wc -l < "$TEMP_DIR/sources.txt")
+                        if [ "$sources_count" -eq 0 ]; then
+                            cecho "$RED" "▶ ✖ No files found with keyword '$keyword' in any supported format"
+                            continue
+                        else
+                            printf "%b▶ Found %d files in other formats:%b\n" "$YELLOW" "$sources_count" "$RESET"
+                        fi
+                    fi
+                    break
+                    ;;
+                *) cecho "$RED" "✖ Invalid choice";;
+            esac
+        done
+        sources_count=0
+        while IFS= read -r s; do
+            sources_count=$((sources_count + 1))
+            eval "source_$sources_count=\"\$s\""
+        done < "$TEMP_DIR/sources.txt"
+        if [ "$sources_count" -eq 0 ]; then
+            cecho "$RED" "✖ [No valid source files found (max 100MB each)]"
+            exit 1
+        fi
+
+        if [ "$sources_count" -eq 1 ]; then
+            selected_source=$(eval "echo \$source_1")
+            printf "%b▶ 1 file was found with the name %s%b\n" "$YELLOW" "$(basename "$selected_source")" "$RESET"
+            printf "%b▶ File selected: %s%b\n" "$YELLOW" "$(basename "$selected_source")" "$RESET"
+        else
+            printf "%bAvailable source files:%b\n" "$CYAN" "$RESET"
+            for i in $(seq 1 "$sources_count"); do
+                srcfile=$(eval "echo \$source_$i")
+                printf "  %b%d) %s%b\n" "$GREEN" "$i" "$(basename "$srcfile")" "$RESET"
+            done
+            printf "\n%b▶ Select file (number): %b" "$CYAN" "$RESET"
+            while :; do
+                read file_choice
+                case "$file_choice" in
+                    ''|*[!0-9]*) cecho "$RED" "▶ ✖ Invalid choice";;
+                    *) if [ "$file_choice" -ge 1 ] && [ "$file_choice" -le "$sources_count" ]; then break; else cecho "$RED" "▶ ✖ Invalid choice"; fi;;
+                esac
+                printf "%b▶ Select file: %b" "$CYAN" "$RESET"
+            done
+            selected_source=$(eval "echo \$source_$file_choice")
+            printf "%b▶ File selected: %s%b\n" "$YELLOW" "$(basename "$selected_source")" "$RESET"
+        fi
+
+        printf "%b▶ Converting and applying for widget Widget… (It may take a while)%b\n" "$CYAN" "$RESET"
+        webp_tmp=$(create_webp "$selected_source") || exit 1
+        printf "%b▶ Creating grayscale for %s%b\n" "$YELLOW" "$(basename "$selected_source")" "$RESET"
+        gray_tmp="${MONO_PATH}$(basename "$selected_webp")"
+        create_grayscale "$selected_source" "$gray_tmp"
+        cp "$webp_tmp" "$selected_webp" || { printf "%b▶ ✖ Failed to update normal widget%b\n" "$RED" "$RESET"; exit 1; }
+        track_folder "$TARGET_PATH"
+        track_folder "$MONO_PATH"
+        track_asset "$selected_webp"
+        printf "%b✔ Normal widget updated.%b\n" "$GREEN" "$RESET"
+    else
+        section "Select widgets to replace"
+        printf "  %b0) Select all%b\n" "$GREEN" "$RESET"
+        for i in $(seq 1 "$webps_count"); do
+            w=$(eval "echo \$webp_$i")
+            printf "  %b%d) %s%b\n" "$GREEN" "$i" "$(basename "$w")" "$RESET"
+        done
+        printf "%b▶ Enter widget numbers to replace (comma-separated): %b" "$CYAN" "$RESET"
+        read selected_nums
+        selected_nums=$(echo "$selected_nums" | tr -d ' ')
+        if [ "$selected_nums" = "0" ]; then
+            selected_nums=$(seq -s ',' 1 "$webps_count")
+        fi
+
+        section "Source Type"
+        printf "  %b1) GIF\n  %b2) MP4\n  %b3) WebP\n  %b4) MKV\n  %b5) Other Video (ffmpeg supported)%b\n" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$RESET"
+        printf "\n%b▶ Select source type: %b" "$CYAN" "$RESET"
+        while :; do
+            read type
+            case "$type" in
+                1) type_ext="gif"; break ;;
+                2) type_ext="mp4"; break ;;
+                3) type_ext="webp"; break ;;
+                4) type_ext="mkv"; break ;;
+                5) type_ext="any"; break ;;
+                *) cecho "$RED" "▶ ✖ Invalid type"; printf "%b▶ Select source type: %b" "$CYAN" "$RESET";;
+            esac
+        done
+
+        section "Select Source Directory"
+        printf "  %b1) Scan /storage/emulated/0/\n  %b2) Search by keyword in filename%b\n" "$CYAN" "$CYAN" "$RESET"
+        while :; do
+            printf "%b▶ Select source: %b" "$CYAN" "$RESET"
+            read src
+            case "$src" in
+                1)
+                    path="/storage/emulated/0/"
+                    case "$type_ext" in
+                        gif)   find_expr="-iname '*.gif'" ;;
+                        mp4)   find_expr="-iname '*.mp4'" ;;
+                        webp)  find_expr="-iname '*.webp'" ;;
+                        mkv)   find_expr="-iname '*.mkv'" ;;
+                        any)   find_expr="( -iname '*.gif' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.webp' )" ;;
+                        *)     find_expr="( -iname '*.gif' -o -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.mov' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.webp' )" ;;
+                    esac
+                    eval find \""$path"\" -type f $find_expr -size -100M ! -path "\"*/Android/*\"" ! -name "\".*\"" ! -path "\"*/.*/*\"" > "$TEMP_DIR/sources.txt"
+                    sources_count=$(wc -l < "$TEMP_DIR/sources.txt")
+                    if [ "$sources_count" -gt 30 ]; then
+                        printf "%b▶ There are more than 30 files (%d found). It's recommended to use keyword search for easier selection.%b\n" "$YELLOW" "$sources_count" "$RESET"
+                        printf "%b▶ Do you want to use keyword search instead? (y/n): %b" "$CYAN" "$RESET"
+                        read ans
+                        case "$ans" in
+                            y|Y)
+                                src=2
+                                continue
+                                ;;
+                            n|N)
+                                break
+                                ;;
+                            *)
+                                cecho "$RED" "✖ Invalid choice"
+                                continue
+                                ;;
+                        esac
+                    else
+                        break
+                    fi
+                    ;;
+                2)
+                    break
+                    ;;
+                *) cecho "$RED" "✖ Invalid choice";;
+            esac
+        done
+
+        if [ "$src" = "1" ]; then
+            printf "%bAvailable source files:%b\n" "$CYAN" "$RESET"
+            for i in $(seq 1 "$sources_count"); do
+                srcfile=$(eval "echo \$source_$i")
+                printf "  %b%d) %s%b\n" "$GREEN" "$i" "$(basename "$srcfile")" "$RESET"
+            done
+            widget_count=$(echo "$selected_nums" | tr ',' ' ' | wc -w)
+            printf "%b▶ Enter file numbers to use for widgets (%s) in order (comma-separated): %b" "$CYAN" "$selected_nums" "$RESET"
+            read selected_files
+            file_idx=1
+            for filenum in $(echo "$selected_files" | tr ',' ' '); do
+                srcfile=$(eval "echo \$source_$filenum")
+                eval "srcs_$file_idx=\"$srcfile\""
+                file_idx=$((file_idx+1))
+            done
+            idx=1
+            for num in $(echo "$selected_nums" | tr ',' ' '); do
+                src=$(eval "echo \$srcs_$idx")
+                webp=$(eval "echo \$webp_$num")
+                mono="$MONO_PATH$(basename "$webp")"
+                printf "%b▶ Converting and applying for widget %s Widget… (It may take a while)%b\n" "$CYAN" "$num" "$RESET"
+                webp_tmp=$(create_webp "$src") || { printf "%b▶ ✖ Conversion failed for %s%b\n" "$RED" "$(basename "$src")" "$RESET"; idx=$((idx+1)); continue; }
+                cp "$webp_tmp" "$webp"
+                printf "%b▶ Creating grayscale for %s%b\n" "$YELLOW" "$(basename "$src")" "$RESET"
+                create_grayscale "$src" "$mono"
+                track_folder "$TARGET_PATH"
+                track_folder "$MONO_PATH"
+                track_asset "$webp"
+                idx=$((idx+1))
+            done
+        else
+            section "Search by Keyword"
+            n=1
+            for num in $(echo "$selected_nums" | tr ',' ' '); do
+                webp=$(eval "echo \$webp_$num")
+                while :; do
+                    printf "%b▶ Enter a part of the filename for widget %s (e.g., aizen or -skip): %b" "$CYAN" "$num" "$RESET"
+                    read keyword
+                    keyword=$(echo "$keyword" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                    case "$keyword" in
+                        "-skip")
+                            printf "%b▶ Skipping widget %s%b\n" "$YELLOW" "$num" "$RESET"
+                            eval "skip_$n=1"
+                            eval "selnum_$n=$num"
+                            eval "selwebp_$n=\"$webp\""
+                            n=$((n+1))
+                            continue 2
+                            ;;
+                        "")
+                            cecho "$RED" "▶ ✖ No keyword entered"
+                            continue
+                            ;;
+                        *)
+                            if [ -z "$(echo "$keyword" | tr -d ' ')" ]; then
+                                cecho "$RED" "▶ ✖ Invalid keyword (only spaces)"
+                                continue
+                            fi
+                            eval "skip_$n=0"
+                            break
+                            ;;
+                    esac
+                done
+                find_files "$keyword" "$type_ext" "$TEMP_DIR/source_matches_$n.txt"
+                total_count=$(wc -l < "$TEMP_DIR/source_matches_$n.txt")
+                if [ "$total_count" -eq 0 ] && [ "$type_ext" != "any" ]; then
+                    printf "%b▶ No %s files found with keyword '%s' for widget %s%b\n" "$YELLOW" "$type_ext" "$keyword" "$num" "$RESET"
+                    printf "%b▶ Searching in all supported formats...%b\n" "$CYAN" "$RESET"
+                    search_all_formats "$keyword" "$TEMP_DIR/source_matches_$n.txt"
+                    total_count=$(wc -l < "$TEMP_DIR/source_matches_$n.txt")
+                    if [ "$total_count" -eq 0 ]; then
+                        printf "%b▶ ✖ No files found with keyword '%s' in any supported format. Skipping widget %s%b\n" "$RED" "$keyword" "$num" "$RESET"
+                        eval "skip_$n=1"
+                        eval "selnum_$n=$num"
+                        eval "selwebp_$n=\"$webp\""
+                        n=$((n + 1))
+                        continue
+                    else
+                        printf "%b▶ Found %d files in other formats:%b\n" "$YELLOW" "$total_count" "$RESET"
+                    fi
+                fi
+                total_count=0
+                while IFS= read -r f; do
+                    [ -z "$f" ] && continue
+                    total_count=$((total_count+1))
+                    eval "match_${n}_$total_count=\"\$f\""
+                done < "$TEMP_DIR/source_matches_$n.txt"
+                if [ "$total_count" -eq 1 ]; then
+                    match1=$(eval "echo \$match_${n}_1")
+                    eval "srcs_$n=\"$match1\""
+                    eval "skip_$n=0"
+                    printf "%b▶ File selected for widget %s: %s%b\n" "$YELLOW" "$num" "$(basename "$match1")" "$RESET"
+                elif [ "$total_count" -gt 1 ]; then
+                    for i in $(seq 1 $total_count); do
+                        m=$(eval "echo \$match_${n}_$i")
+                        printf "  %b%d. %s%b\n" "$YELLOW" "$i" "$(basename "$m")" "$RESET"
+                    done
+                    while :; do
+                        printf "%b▶ Enter the number to select one of these files, or type -skip to skip: %b" "$CYAN" "$RESET"
+                        read alt_choice
+                        case "$alt_choice" in
+                            "-skip")
+                                printf "%b▶ Skipping widget %s%b\n" "$YELLOW" "$num" "$RESET"
+                                eval "skip_$n=1"
+                                break
+                                ;;
+                            "")
+                                cecho "$RED" "▶ ✖ No selection entered"
+                                continue
+                                ;;
+                            *)
+                                case "$alt_choice" in
+                                    ''|*[!0-9]*)
+                                        cecho "$RED" "▶ ✖ Invalid selection"
+                                        continue
+                                        ;;
+                                    *)
+                                        if [ "$alt_choice" -ge 1 ] && [ "$alt_choice" -le "$total_count" ]; then
+                                            matchx=$(eval "echo \$match_${n}_$alt_choice")
+                                            eval "srcs_$n=\"$matchx\""
+                                            eval "skip_$n=0"
+                                            printf "%b▶ File selected for widget %s: %s%b\n" "$YELLOW" "$num" "$(basename "$matchx")" "$RESET"
+                                            break
+                                        else
+                                            cecho "$RED" "▶ ✖ Invalid selection"
+                                            continue
+                                        fi
+                                        ;;
+                                esac
+                                ;;
+                        esac
+                    done
+                else
+                    printf "%b▶ ✖ No files found. Skipping widget %s%b\n" "$RED" "$num" "$RESET"
+                    eval "skip_$n=1"
+                fi
+                eval "selnum_$n=$num"
+                eval "selwebp_$n=\"$webp\""
+                n=$((n + 1))
+            done
+            for i in $(seq 1 $((n-1))); do
+                skip=$(eval "echo \$skip_$i")
+                [ "$skip" = "1" ] && continue
+                selnum=$(eval "echo \$selnum_$i")
+                webp=$(eval "echo \$selwebp_$i")
+                src=$(eval "echo \$srcs_$i")
+                mono="$MONO_PATH$(basename "$webp")"
+                printf "%b▶ Converting and applying for widget %s Widget… (It may take a while)%b\n" "$CYAN" "$selnum" "$RESET"
+                webp_tmp=$(create_webp "$src") || { printf "%b▶ ✖ Conversion failed for %s%b\n" "$RED" "$(basename "$src")" "$RESET"; continue; }
+                cp "$webp_tmp" "$webp"
+                printf "%b▶ Creating grayscale for %s%b\n" "$YELLOW" "$(basename "$src")" "$RESET"
+                create_grayscale "$src" "$mono"
+                track_folder "$TARGET_PATH"
+                track_folder "$MONO_PATH"
+                track_asset "$webp"
+            done
+        fi
+    fi
+}
+
+main_menu() {
+    section "Nothing Widget Animator By AshBorn(@Ripper_Hybrid)"
+    check_env
+    printf "  %b1) Animate Widgets\n  %b2) Backup Current Widgets%b\n" "$CYAN" "$CYAN" "$RESET"
+    printf "\n%b▶ Select an option: %b" "$CYAN" "$RESET"
+    while :; do
+        read menu_choice
+        case "$menu_choice" in
+            1)
+                setup_dir
+                pick_widget
+                scan_assets
+                choose_mode
+                process_selection
+                fix_permissions
+                rm -rf /data/user/0/com.nothing.launcher/cache/image_manager_disk_cache 2>/dev/null || true
+                section "Done"
+                cecho "$GREEN" "▶ ✔ Script finished. All changes applied."
+                su 2000 -c "cmd notification post -t '▶ Nothing Widget Animator' 'nowid' '✅ Script finished. All changes applied.'" >/dev/null 2>&1
+                break
+                ;;
+            2)
+                backup_widgets
+                section "Done"
+                break
+                ;;
+            *)
+                cecho "$RED" "▶ ✖ Invalid option"
+                printf "%b▶ Select an option: %b" "$CYAN" "$RESET"
+                ;;
+        esac
+    done
+}
+
+main_menu
