@@ -57,8 +57,14 @@ If you see the error: `✖ [Cannot access app data folder]`
 - Backup both color and mono widget versions  
 - Store backups on internal storage for safekeeping
 
+## 🐛 Error Reporting  
+- If you encounter any errors, a log file will be automatically generated  
+- Send the log ZIP file from `/storage/emulated/0/AshBorn/` to the module author  
+- Include your Nothing OS version (e.g., Nothing OS 2.5, 3.2, etc.)  
+- Include versions of Nothing Launcher and Nothing Widgets apps  
+
 ## 🎬 Preview  
-Check out **[Preview](preview.md)**
+- Check out **[Preview](preview.md)**
 
 ## 👤 Author  
 - **AshBorn** ([@Ripper_Hybrid](https://t.me/Ripper_Hybrid))

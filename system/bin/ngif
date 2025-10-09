@@ -8,13 +8,27 @@ CYAN="\033[36m"
 RESET="\033[0m"
 BOLD="\033[1m"
 
-section() {
-    printf "\n%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET"
-    printf "%b%s%b\n" "$CYAN" "◆  $(printf '%-38s' "$1")" "$RESET"
-    printf "%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET"
+LOG_DIR="/storage/emulated/0/AshBorn"
+LOG_PREFIX="ngif_$(date +%Y%m%d_%H%M%S)"
+MAIN_LOG="${LOG_DIR}/${LOG_PREFIX}_main.log"
+FFMPEG_LOG="${LOG_DIR}/${LOG_PREFIX}_ffmpeg.log"
+ERROR_LOG="${LOG_DIR}/${LOG_PREFIX}_error.log"
+ZIP_LOG="${LOG_DIR}/${LOG_PREFIX}_logs.zip"
+LOG_FAIL=0
+
+notify_final() {
+    TITLE="▶ Nothing Widget Animator"
+    MSG="$1"
+    su 2000 -c "cmd notification post -t '${TITLE}' 'nowid' \"${MSG}\"" >/dev/null 2>&1
 }
 
-cecho() { printf "%b%s%b\n" "$1" "$2" "$RESET"; }
+section() {
+    printf "\n%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET" | tee -a "$MAIN_LOG"
+    printf "%b%s%b\n" "$CYAN" "◆  $(printf '%-38s' "$1")" "$RESET" | tee -a "$MAIN_LOG"
+    printf "%b%s%b\n" "$CYAN" "◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆" "$RESET" | tee -a "$MAIN_LOG"
+}
+
+cecho() { printf "%b%s%b\n" "$1" "$2" "$RESET" | tee -a "$MAIN_LOG"; }
 
 final_cleanup() {
     if [ -n "${TEMP_DIR:-}" ] && [ -d "$TEMP_DIR" ]; then
@@ -22,11 +36,18 @@ final_cleanup() {
     fi
     pkill -9 -f com.nothing.hearthstone 2>/dev/null || true
     pkill -9 -f com.nothing.launcher 2>/dev/null || true
+    if [ "$LOG_FAIL" -eq 1 ]; then
+        cd /storage/emulated/0/AshBorn/ || exit 1
+        infozip -r -5 -q "$ZIP_LOG" "$(basename "$MAIN_LOG")" "$(basename "$FFMPEG_LOG")" "$(basename "$ERROR_LOG")" >/dev/null 2>&1
+    else
+        rm -f "$MAIN_LOG" "$FFMPEG_LOG" "$ERROR_LOG"
+    fi
 }
 trap final_cleanup EXIT INT TERM HUP
 
 setup_dir() {
     TEMP_DIR="/data/local/tmp/ngs_$$"
+    mkdir -p "$LOG_DIR"
     mkdir -p "$TEMP_DIR"
     CHANGED_PATHS_FILE="$TEMP_DIR/changed_paths.txt"
     CHANGED_ASSETS_FILE="$TEMP_DIR/changed_assets.txt"
@@ -58,9 +79,8 @@ fix_permissions() {
             fi
         done
     fi
-    
     if [ -s "$CHANGED_ASSETS_FILE" ]; then
-        printf "%b▶ Modified assets:%b\n" "$CYAN" "$RESET"
+        printf "%b▶ Modified assets:%b\n" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
         sort -u "$CHANGED_ASSETS_FILE" | while IFS= read -r filename; do
             short_name=$(echo "$filename" | sed 's/\(nothing_photo_[0-9-]*_[0-9]*\).*/\1.../')
             cecho "$GREEN" "  ✔ $short_name"
@@ -74,38 +94,38 @@ check_env() {
     if [ "$(id -u)" -ne 0 ]; then 
         cecho "$RED" "▶ ✖ [Error: Run as root]"
         cecho "$YELLOW" "▶ ⚠ [Exit the terminal completely and restart after enabling root]"
+        LOG_FAIL=1
         exit 1
     fi
-
     if ! command -v ffmpeg >/dev/null 2>&1; then 
         cecho "$RED" "▶ ✖ [Missing required tool: ffmpeg]"
+        LOG_FAIL=1
         exit 1
     fi
-
     if ! command -v infozip >/dev/null 2>&1; then 
         cecho "$RED" "▶ ✖ [Missing required tool: infozip]"
+        LOG_FAIL=1
         exit 1
     fi
-
     if ! pm list packages | grep -q "com.nothing.hearthstone"; then
         cecho "$RED" "▶ ✖ [App not installed: com.nothing.hearthstone]"
+        LOG_FAIL=1
         exit 1
     fi
-
     if [ ! -d "/data/user/0/com.nothing.hearthstone" ]; then
         cecho "$RED" "▶ ✖ [Cannot access app data folder]"
         cecho "$YELLOW" "▶ ⚠ [Enable 'Global Namespace' or Mount Namespace Mode in your root solution]"
         cecho "$YELLOW" "▶ ⚠ [Magisk: Mount Namespace Mode ▶ Global Namespace]"
         cecho "$YELLOW" "▶ ⚠ [KernelSU-Next: Enable Global namespace mode]"
         cecho "$YELLOW" "▶ ⚠ [Exit terminal completely and restart after changing setting]"
+        LOG_FAIL=1
         exit 1
     fi
-
     cecho "$GREEN" "▶ ✔ Environment OK"
 }
 
 discover_widgets() {
-    cd /data/user/0/com.nothing.hearthstone/files/picture/normal 2>/dev/null || { cecho "$RED" "▶ ✖ [Widget directory missing]"; exit 1; }
+    cd /data/user/0/com.nothing.hearthstone/files/picture/normal 2>/dev/null || { cecho "$RED" "▶ ✖ [Widget directory missing]"; LOG_FAIL=1; exit 1; }
     widgets_count=0
     > "$TEMP_DIR/widgets.txt"
     for d in ./*; do
@@ -120,7 +140,7 @@ discover_widgets() {
             fi
         fi
     done
-    if [ "$widgets_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No widgets found]"; exit 1; fi
+    if [ "$widgets_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No widgets found]"; LOG_FAIL=1; exit 1; fi
 }
 
 display_widgets() {
@@ -128,7 +148,7 @@ display_widgets() {
     for i in $(seq 1 "$widgets_count"); do
         folder=$(eval "echo \$widget_$i")
         files=$(eval "echo \$widget_${i}_files")
-        printf "  %b%d) %s %b(%d files)%b\n" "$GREEN" "$i" "$folder" "$YELLOW" "$files" "$RESET"
+        printf "  %b%d) %s %b(%d files)%b\n" "$GREEN" "$i" "$folder" "$YELLOW" "$files" "$RESET" | tee -a "$MAIN_LOG"
     done
 }
 
@@ -140,14 +160,14 @@ pick_widget() {
         cecho "$YELLOW" "▶ Only one widget found: $widget_name. Selecting automatically."
     else
         display_widgets
-        printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET"
+        printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
         while :; do
             read widget_choice
             case "$widget_choice" in
                 ''|*[!0-9]*) cecho "$RED" "▶ ✖ Invalid choice";;
                 *) if [ "$widget_choice" -ge 1 ] && [ "$widget_choice" -le "$widgets_count" ]; then break; else cecho "$RED" "▶ ✖ Invalid choice"; fi;;
             esac
-            printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET"
+            printf "%b▶ Select widget (number): %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
         done
         widget_name=$(eval "echo \$widget_$widget_choice")
     fi
@@ -162,19 +182,19 @@ scan_assets() {
         webps_count=$((webps_count + 1))
         eval "webp_$webps_count=\"\$w\""
     done < "$TEMP_DIR/webps.txt"
-    if [ "$webps_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No WebP files found]"; exit 1; fi
+    if [ "$webps_count" -eq 0 ]; then cecho "$RED" "▶ ✖ [No WebP files found]"; LOG_FAIL=1; exit 1; fi
 }
 
 choose_mode() {
     if [ "$webps_count" -gt 1 ]; then
         section "Replacement Mode"
-        printf "  %b1) Replace single\n  %b2) Replace multiple%b\n" "$CYAN" "$CYAN" "$RESET"
-        printf "\n%b▶ Select mode: %b" "$CYAN" "$RESET"
+        printf "  %b1) Replace single\n  %b2) Replace multiple%b\n" "$CYAN" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
+        printf "\n%b▶ Select mode: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
         while :; do
             read mode
             case "$mode" in
                 1|2) break ;;
-                *) cecho "$RED" "▶ ✖ Invalid mode"; printf "%b▶ Select mode: %b" "$CYAN" "$RESET";;
+                *) cecho "$RED" "▶ ✖ Invalid mode"; printf "%b▶ Select mode: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG";;
             esac
         done
     else
@@ -184,8 +204,8 @@ choose_mode() {
 
 pick_source_type() {
     section "Source Type"
-    printf "  %b1) GIF\n  %b2) MP4\n  %b3) WebP\n  %b4) MKV\n  %b5) Other Video (ffmpeg supported)%b\n" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$RESET"
-    printf "\n%b▶ Select source type: %b" "$CYAN" "$RESET"
+    printf "  %b1) GIF\n  %b2) MP4\n  %b3) WebP\n  %b4) MKV\n  %b5) Other Video (ffmpeg supported)%b\n" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
+    printf "\n%b▶ Select source type: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
     while :; do
         read type
         case "$type" in
@@ -194,7 +214,7 @@ pick_source_type() {
             3) type_ext="webp"; break ;;
             4) type_ext="mkv"; break ;;
             5) type_ext="any"; break ;;
-            *) cecho "$RED" "▶ ✖ Invalid type"; printf "%b▶ Select source type: %b" "$CYAN" "$RESET";;
+            *) cecho "$RED" "▶ ✖ Invalid type"; printf "%b▶ Select source type: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG";;
         esac
         done
 }
@@ -202,14 +222,16 @@ pick_source_type() {
 create_webp() {
     src="$1"
     out="$TEMP_DIR/$(basename "${src%.*}")_$(date +%s%N).webp"
-    fps=$(ffmpeg -i "$src" 2>&1 | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
+    fps=$(ffmpeg -i "$src" 2>&1 | tee -a "$FFMPEG_LOG" | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
     [ -z "$fps" ] && fps=24
-    ffmpeg -y -i "$src" -vf "fps=$fps,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 "$out" 2> "$TEMP_DIR/ffmpeg_webp.log"
+    ffmpeg -y -i "$src" -vf "fps=$fps,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 "$out" 2>> "$FFMPEG_LOG"
     if [ -f "$out" ] && [ -s "$out" ]; then
         echo "$out"
     else
         cecho "$RED" "▶ ✖ [Conversion failed: see $TEMP_DIR/ffmpeg_webp.log]"
-        tail -20 "$TEMP_DIR/ffmpeg_webp.log" >&2
+        cat "$TEMP_DIR/ffmpeg_webp.log" >> "$FFMPEG_LOG"
+        LOG_FAIL=1
+        tail -20 "$TEMP_DIR/ffmpeg_webp.log" | tee -a "$ERROR_LOG" >&2
         return 1
     fi
 }
@@ -217,12 +239,16 @@ create_webp() {
 create_grayscale() {
     src="$1"
     dest="$2"
-    fps=$(ffmpeg -i "$src" 2>&1 | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
+    fps=$(ffmpeg -i "$src" 2>&1 | tee -a "$FFMPEG_LOG" | grep -Eo '[0-9.]+ fps' | head -n1 | awk '{print $1}')
     [ -z "$fps" ] && fps=24
-    ffmpeg -y -i "$src" -vf "format=gray,fps=$fps,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" -loop 0 "$dest" 2> "$TEMP_DIR/ffmpeg_webp_gray.log"
+    ffmpeg -y -i "$src" \
+        -filter_complex "[0:v]format=rgb32,fps=$fps,scale=320:-1:flags=lanczos,hue=s=0,split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128" \
+        -loop 0 "$dest" 2>> "$FFMPEG_LOG"
     if [ ! -s "$dest" ]; then
         cecho "$RED" "▶ ✖ [Mono conversion failed. See logs:]"
-        tail -20 "$TEMP_DIR/ffmpeg_webp_gray.log" >&2
+        LOG_FAIL=1
+        tail -20 "$TEMP_DIR/ffmpeg_webp_gray.log" | tee -a "$ERROR_LOG" >&2
+        cat "$TEMP_DIR/ffmpeg_webp_gray.log" >> "$FFMPEG_LOG"
         return 1
     fi
 }
@@ -233,8 +259,8 @@ backup_widgets() {
     src_normal="/data/user/0/com.nothing.hearthstone/files/picture/normal/$widget_name/"
     src_mono="/data/user/0/com.nothing.hearthstone/files/picture/mono/$widget_name/"
     backup_time=$(date "+%Y%m%d_%H%M%S")
-    backup_zip="/storage/emulated/0/n2gif_backup_${widget_name}_${backup_time}.zip"
-    printf "%b▶ Set a password for the backup (press Enter for no encryption): %b" "$CYAN" "$RESET"
+    backup_zip="/storage/emulated/0/ngif_backup_${widget_name}_${backup_time}.zip"
+    printf "%b▶ Set a password for the backup (press Enter for no encryption): %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
     read -r password
     cecho "$CYAN" "▶ Creating backup archive..."
     TMP_BK="/data/local/tmp/backup_$$"
@@ -252,8 +278,11 @@ backup_widgets() {
     if [ -f "$backup_zip" ] && [ "$(stat -c %s "$backup_zip")" -gt 0 ]; then
         cecho "$GREEN" "✔ Backup created: $backup_zip"
         [ -n "$password" ] && cecho "$YELLOW" "▶ Backup is encrypted with your password (insecure method)."
+        notify_final "✔ Backup completed. Copy backup zip to somewhere to restore later."
     else
         cecho "$RED" "▶ ✖ Backup failed!"
+        LOG_FAIL=1
+        notify_final "❌ Backup failed logs zip in /sdcard/AshBorn/${LOG_PREFIX}_logs.zip"
     fi
 }
 
@@ -261,7 +290,6 @@ find_files() {
     local keyword="$1"
     local type_ext="$2"
     local output_file="$3"
-    
     case "$type_ext" in
         gif)   find_pattern="*$keyword*.gif" ;;
         mp4)   find_pattern="*$keyword*.mp4" ;;
@@ -270,14 +298,12 @@ find_files() {
         any)   find_pattern="*$keyword*" ;;
         *)     find_pattern="*$keyword*" ;;
     esac
-    
     find /storage/emulated/0 -type f -name "$find_pattern" -size -100M ! -path "*/Android/*" ! -name ".*" ! -path "*/.*/*" > "$output_file"
 }
 
 search_all_formats() {
     local keyword="$1"
     local output_file="$2"
-    
     find /storage/emulated/0 -type f \( -iname "*$keyword*.gif" -o -iname "*$keyword*.mp4" -o -iname "*$keyword*.webp" -o -iname "*$keyword*.mkv" -o -iname "*$keyword*.webm" -o -iname "*$keyword*.avi" -o -iname "*$keyword*.mov" -o -iname "*$keyword*.mpeg" -o -iname "*$keyword*.mpg" \) -size -100M ! -path "*/Android/*" ! -name ".*" ! -path "*/.*/*" > "$output_file"
 }
 
@@ -660,8 +686,8 @@ process_selection() {
 main_menu() {
     section "Nothing Widget Animator By AshBorn(@Ripper_Hybrid)"
     check_env
-    printf "  %b1) Animate Widgets\n  %b2) Backup Current Widgets%b\n" "$CYAN" "$CYAN" "$RESET"
-    printf "\n%b▶ Select an option: %b" "$CYAN" "$RESET"
+    printf "  %b1) Animate Widgets\n  %b2) Backup Current Widgets%b\n" "$CYAN" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
+    printf "\n%b▶ Select an option: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
     while :; do
         read menu_choice
         case "$menu_choice" in
@@ -675,17 +701,23 @@ main_menu() {
                 rm -rf /data/user/0/com.nothing.launcher/cache/image_manager_disk_cache 2>/dev/null || true
                 section "Done"
                 cecho "$GREEN" "▶ ✔ Script finished. All changes applied."
-                su 2000 -c "cmd notification post -t '▶ Nothing Widget Animator' 'nowid' '✅ Script finished. All changes applied.'" >/dev/null 2>&1
+                REPLACED_COUNT=$(cat "$CHANGED_ASSETS_FILE" | wc -l)
+                if [ "$LOG_FAIL" -eq 1 ]; then
+                    notify_final "❌ Script finished with errors logs zip in /sdcard/AshBorn/${LOG_PREFIX}_logs.zip"
+                else
+                    notify_final "✔ All changes applied.Modified assets: $REPLACED_COUNT"
+                fi
                 break
                 ;;
             2)
+                setup_dir
                 backup_widgets
                 section "Done"
                 break
                 ;;
             *)
                 cecho "$RED" "▶ ✖ Invalid option"
-                printf "%b▶ Select an option: %b" "$CYAN" "$RESET"
+                printf "%b▶ Select an option: %b" "$CYAN" "$RESET" | tee -a "$MAIN_LOG"
                 ;;
         esac
     done
