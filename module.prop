@@ -1,8 +1,8 @@
 id=ngifmod
 name=Nothing Widget Animator
-version=1.5
-versionCode=150
+version=1.6
+versionCode=160
 author=AshBorn(@Ripper_Hybrid)
 description=Convert normal images into animated GIF widgets on Nothing. Usage: su ▶ ngif
 updateJson=https://raw.githubusercontent.com/RipperHybrid/NGifMod/Master/update.json
-banner=.banner
+banner=https://raw.githubusercontent.com/RipperHybrid/NGifMod/Master/.github/resources/banner

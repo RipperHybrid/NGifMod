@@ -1,7 +1,23 @@
 # Nothing Widget Animator
 
-<img src="https://img.shields.io/badge/Exclusively%20for-Nothing%20Devices-green" alt="Exclusively for Nothing Devices">
-<img src="https://img.shields.io/badge/Compatible%20with-Magisk%20%7C%20KernelSU%20%7C%20KernelSU--Next-blueviolet" alt="Compatible with Magisk, KernelSU, KernelSU-Next">
+<p align="center">
+  <img src="https://img.shields.io/badge/Exclusively%20for-Nothing%20Devices-green" alt="Exclusively for Nothing Devices">
+  <img src="https://img.shields.io/badge/Compatible%20with-Magisk%20%7C%20KernelSU%20%7C%20KernelSU--Next-blueviolet" alt="Compatible with Magisk, KernelSU, KernelSU-Next">
+  <br>
+  
+  <a href="https://github.com/RipperHybrid/NGifMod/releases/latest">
+    <img src="https://img.shields.io/github/v/release/RipperHybrid/NGifMod?label=Latest%20Release&logo=git&logoColor=white&color=18673F&labelColor=2E2E3F&style=flat" alt="Latest Release">
+    <img src="https://img.shields.io/github/license/RipperHybrid/NGifMod?label=License&logo=git&logoColor=white&color=18673F&labelColor=2E2E3F&style=flat" alt="License">
+  </a>
+  <br>
+  
+  <a href="https://github.com/RipperHybrid/NGifMod">
+    <img src="https://img.shields.io/github/commit-activity/t/RipperHybrid/NGifMod?label=Total%20Commits&logo=git&logoColor=white&color=18673F&labelColor=2E2E3F&style=flat" alt="Total Commits">
+  </a>
+  <a href="https://github.com/RipperHybrid/NGifMod/commits/main">
+    <img src="https://img.shields.io/github/last-commit/RipperHybrid/NGifMod?label=Last%20Commit&logo=git&logoColor=white&color=18673F&labelColor=2E2E3F&style=flat" alt="Last Commit">
+  </a>
+</p>
 
 ## 📝 Overview  
 A **Magisk/KernelSU/KernelSU-Next module** that enables **animated GIF/MP4/WebP support** for widgets on **Nothing devices**. This module replaces static widget images with animated content while maintaining the native Nothing widget experience.
@@ -70,8 +86,8 @@ If you see the error: `✖ [Cannot access app data folder]`
 - **AshBorn** ([@Ripper_Hybrid](https://t.me/Ripper_Hybrid))
 
 ## 💡 Credits  
-- **Media Converter:** [FFmpeg Static Build](https://johnvansickle.com/ffmpeg)
-- **Archive Tool**: [Info-ZIP](https://infozip.sourceforge.net/)
+- **Media Converter:** [FFmpeg & FFprobe Static Build](https://johnvansickle.com/ffmpeg)
+- **WeaponX Binary:** [GNU Bash Static Build](https://ftp.gnu.org/gnu/bash)
 
 ## 📜 License
 - **This project is licensed under the** [MIT License](LICENSE).
